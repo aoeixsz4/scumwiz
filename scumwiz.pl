@@ -34,13 +34,13 @@ while (1)
 	# get screen
 	do
 	{
-		usleep 40000;
-		@old_data = @data
-			if (@data);
-		@data = get_screencopy ($session)
+		usleep 500000;
+		#@old_data = @data
+		#	if (@data);
+		#@data = get_screencopy ($session)
 	}
-	while (!@data || diff_array (\@data, \@old_data));
-#	while (!@data);
+#	while (!@data || diff_array (\@data, \@old_data));
+	while (!@data);
 
 	# start game
 	if (grep { /Connection closed by foreign host/ } @data) {
@@ -63,7 +63,7 @@ while (1)
 	} elsif (grep { /Hello ${user_lowercase}/ } @data) {
 		# max scum one game per second otherwise dgl error turfs us out
 		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
-		sleep 1;
+		#sleep 1;
 #		if (grep { /\{/ } @data)
 #		{ goto OUT }
 		if (grep { /\// } @data)
