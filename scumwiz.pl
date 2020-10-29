@@ -68,32 +68,32 @@ while (1)
 #		{ goto OUT }
 		if (grep { /\// } @data)
 		{ goto OUT }
-		if ($data[0] && $data[0] =~ /^(\(|\))\s+.*\((.*)\)$/)
-		{ push @tools, $2 if ($1 eq '(');
-		  push @weapons, $2 if ($1 eq ')');
-		  print "Got a $2\n"; }
-		if (grep { /lamp|pick-axe|marker/ } @tools)
-		{ goto OUT }
-		if (grep { /broad pick/ } @weapons)
-		{ goto OUT }
-		if (@first_room_features)
-		{ my $cmd = ';'; my $obj = shift @first_room_features; my ($dx, $dy);
-			$dx = $obj->[0] - $coords[0]; $dy = $obj->[1] - $coords[1];
-			while ($dx && $dy)
-			{ if ($dx < 0 && $dy < 0) { $cmd .= 'y'; $dx++; $dy++ }
-			  if ($dx > 0 && $dy < 0) { $cmd .= 'u'; $dx--; $dy++ }
-			  if ($dx > 0 && $dy > 0) { $cmd .= 'n'; $dx--; $dy-- }
-			  if ($dx < 0 && $dy > 0) { $cmd .= 'b'; $dx++; $dy-- }
-			}
-			while ($dx || $dy)
-			{ if ($dx < 0) { $cmd .= 'h'; $dx++ }
-			  if ($dx > 0) { $cmd .= 'l'; $dx-- }
-			  if ($dy < 0) { $cmd .= 'k'; $dy++ }
-			  if ($dy > 0) { $cmd .= 'j'; $dy-- }
-			}
-			$cmd .= '.'; system ('screen', '-S', $session, '-X', 'stuff', $cmd);
-			print "farlook\n";
-		}
+#		if ($data[0] && $data[0] =~ /^(\(|\))\s+.*\((.*)\)$/)
+#		{ push @tools, $2 if ($1 eq '(');
+#		  push @weapons, $2 if ($1 eq ')');
+#		  print "Got a $2\n"; }
+#		if (grep { /lamp|pick-axe|marker/ } @tools)
+#		{ goto OUT }
+#		if (grep { /broad pick/ } @weapons)
+#		{ goto OUT }
+#		if (@first_room_features)
+#		{ my $cmd = ';'; my $obj = shift @first_room_features; my ($dx, $dy);
+#			$dx = $obj->[0] - $coords[0]; $dy = $obj->[1] - $coords[1];
+#			while ($dx && $dy)
+#			{ if ($dx < 0 && $dy < 0) { $cmd .= 'y'; $dx++; $dy++ }
+#			  if ($dx > 0 && $dy < 0) { $cmd .= 'u'; $dx--; $dy++ }
+#			  if ($dx > 0 && $dy > 0) { $cmd .= 'n'; $dx--; $dy-- }
+#			  if ($dx < 0 && $dy > 0) { $cmd .= 'b'; $dx++; $dy-- }
+#			}
+#			while ($dx || $dy)
+#			{ if ($dx < 0) { $cmd .= 'h'; $dx++ }
+#			  if ($dx > 0) { $cmd .= 'l'; $dx-- }
+#			  if ($dy < 0) { $cmd .= 'k'; $dy++ }
+#			  if ($dy > 0) { $cmd .= 'j'; $dy-- }
+#			}
+#			$cmd .= '.'; system ('screen', '-S', $session, '-X', 'stuff', $cmd);
+#			print "farlook\n";
+#		}
 #		elsif (@levelmap && @coords && !@first_room_features)
 #		{	system ('screen', '-S', $session, '-X', 'stuff', '  i')   }
 		else
