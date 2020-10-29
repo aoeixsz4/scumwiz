@@ -37,7 +37,7 @@ while (1)
 		usleep 500000;
 		#@old_data = @data
 		#	if (@data);
-		#@data = get_screencopy ($session)
+		@data = get_screencopy ($session)
 	}
 #	while (!@data || diff_array (\@data, \@old_data));
 	while (!@data);
@@ -63,63 +63,8 @@ while (1)
 	} elsif (grep { /Hello ${user_lowercase}/ } @data) {
 		# max scum one game per second otherwise dgl error turfs us out
 		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
-		#sleep 1;
-#		if (grep { /\{/ } @data)
-#		{ goto OUT }
 		if (grep { /\// } @data)
 		{ goto OUT }
-#		if ($data[0] && $data[0] =~ /^(\(|\))\s+.*\((.*)\)$/)
-#		{ push @tools, $2 if ($1 eq '(');
-#		  push @weapons, $2 if ($1 eq ')');
-#		  print "Got a $2\n"; }
-#		if (grep { /lamp|pick-axe|marker/ } @tools)
-#		{ goto OUT }
-#		if (grep { /broad pick/ } @weapons)
-#		{ goto OUT }
-#		if (@first_room_features)
-#		{ my $cmd = ';'; my $obj = shift @first_room_features; my ($dx, $dy);
-#			$dx = $obj->[0] - $coords[0]; $dy = $obj->[1] - $coords[1];
-#			while ($dx && $dy)
-#			{ if ($dx < 0 && $dy < 0) { $cmd .= 'y'; $dx++; $dy++ }
-#			  if ($dx > 0 && $dy < 0) { $cmd .= 'u'; $dx--; $dy++ }
-#			  if ($dx > 0 && $dy > 0) { $cmd .= 'n'; $dx--; $dy-- }
-#			  if ($dx < 0 && $dy > 0) { $cmd .= 'b'; $dx++; $dy-- }
-#			}
-#			while ($dx || $dy)
-#			{ if ($dx < 0) { $cmd .= 'h'; $dx++ }
-#			  if ($dx > 0) { $cmd .= 'l'; $dx-- }
-#			  if ($dy < 0) { $cmd .= 'k'; $dy++ }
-#			  if ($dy > 0) { $cmd .= 'j'; $dy-- }
-#			}
-#			$cmd .= '.'; system ('screen', '-S', $session, '-X', 'stuff', $cmd);
-#			print "farlook\n";
-#		}
-#		elsif (@levelmap && @coords && !@first_room_features)
-#		{	system ('screen', '-S', $session, '-X', 'stuff', '  i')   }
-		else
-		{
-			$i = 0;
-			while ($i < 20 && $i + 2 < @data)
-			{
-				push @levelmap, [ split (//, substr ($data[$i+2], 0, 80)) ];
-				$i++
-			}
-			$i = 0;
-			while ($i < @levelmap)
-			{
-				$j = 0;
-				while (@{ $levelmap[$i] } && $j < @{ $levelmap[$i] } && $j < 80)
-				{
-					@coords = ($j, $i)
-						if ($levelmap[$i]->[$j] eq '@');
-					push @first_room_features, [ $j, $i ]
-						if ($levelmap[$i]->[$j] eq '('
-							|| $levelmap[$i]->[$j] eq ')'); 
-					$j++
-				}
-				$i++
-			}
-		}
 		# check for key items
 		foreach my $line (@data) {
 			if ($line =~ /$user the Evoker/) {
