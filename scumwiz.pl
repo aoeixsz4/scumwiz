@@ -35,12 +35,12 @@ while (1)
 	do
 	{
 		usleep 40000;
-#		@old_data = @data
-#			if (@data);
+		@old_data = @data
+			if (@data);
 		@data = get_screencopy ($session)
 	}
-#	while (!@data || diff_array (\@data, \@old_data));
-	while (!@data);
+	while (!@data || diff_array (\@data, \@old_data));
+#	while (!@data);
 
 	# start game
 	if (grep { /Connection closed by foreign host/ } @data) {
