@@ -48,9 +48,9 @@ while (1)
 		die "Spamfiltered ($count tries, time: $elapsed."
 	}
 	
-	if (grep { /\bLogged in as: ${user_lowercase}\b/ }  @data)
+	if (grep { /THE NOVEMBER NETHACK TOURNAMENT IS LIVE/ }  @data)
 	{
-		system ('screen', '-S', $session, '-X', 'stuff', 'v');
+		system ('screen', '-S', $session, '-X', 'stuff', 't');
 	} elsif (grep { /^.?>>/ } @data) {
 		system ('screen', '-S', $session, '-X', 'stuff', ' ');
 	} elsif (grep { /Do you want to see the dungeon overview/ } @data) {
@@ -65,6 +65,8 @@ while (1)
 		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
 		if (grep { /\// } @data)
 		{ goto OUT }
+        elsif (grep { /\w - a .*wand/ })
+        { goto OUT }
 		# check for key items
 		foreach my $line (@data) {
 			if ($line =~ /$user the Evoker/) {
