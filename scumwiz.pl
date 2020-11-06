@@ -65,7 +65,7 @@ while (1)
 		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
 		if (grep { /\// } @data)
 		{ goto OUT }
-        elsif (grep { /\w - a .*wand/ })
+        elsif (grep { /\w - a .*wand/ } @data)
         { goto OUT }
 		# check for key items
 		foreach my $line (@data) {
