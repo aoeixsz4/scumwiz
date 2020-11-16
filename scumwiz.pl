@@ -5,6 +5,7 @@ use warnings;
 use List::MoreUtils qw(uniq any none);
 use Time::HiRes qw(usleep gettimeofday tv_interval);
 use POSIX qw(mkfifo);
+use Data::Dump qw(dd);
 
 # use environment-defined TMPDIR, if it exists
 # the default of /tmp should be fairly cross-platform tho
@@ -181,15 +182,159 @@ sub get_screencopy
 	close $fh;
 	unlink $filename;
 
-	foreach my $line (@screen_raw) {
+	foreach my $line (@screen_raw)
+	{
 		$line =~ s/^\s*//; # strip preceeding whitespace
 		$line =~ s/\s*$//; # strip tailing whitespace
-		if (length($line) > 0) {
+		if (length($line) > 0)
+		{
 			push @data_out, $line;
             #print STDERR "$line\n";
 		}
 	}
 	return @data_out;
+}
+
+sub get_statusline
+{
+	my $data = shift;
+	my %statusline;
+
+	# this iterates over all the *pairs* of lines,
+	# hence the $i < length - 1
+	for (my $i = 0; $i < (@$data - 1); $i++)
+	{
+		my $top_line = $data->[$i];
+		my $bottom_line = $data->[$i+1];
+
+		# first do a simpler test to skip any wrong lines, also trim junk
+		# before and after actual statusline text
+		if ($top_line
+			=~ m/\[?
+					(\w+) \x20 the \x20 (\w+)
+				(?: \s*? \])?
+				\x20*
+					( (?: \x20 [A-Z] [a-z]
+						: \d+ (?: \/(?: \d+ | \*\*) )?
+						){6} )
+				\s+
+					(\w+)/x
+			)
+		{
+			my ($name,				# this is typically the server username
+				$title,				# role title at xlvl, or polyform e.g. Minotaur
+				$abilities_line,		# this should essentially be St:xx Dx:xx Co:xx In:xx Wi:xx Ch:xx 
+				$align
+			) = ($1, $2, $3, $4);
+
+			$statusline{name}  = $name;
+			$statusline{title} = $title;
+			$statusline{align} = $align;
+			
+			# the ability score bit needs some additional processing
+			my @ability_keys = ('St', 'Dx', 'Co', 'In', 'Wi', 'Ch');
+			foreach my $ability (split(/\s+/, $abilities_line))
+			{
+				if ($ability =~ m/^([A-Z][a-z]) : (\S+)$/x)
+				{
+					my ($stat, $value) = ($1, $2);
+					if ($value =~ m/^\d+$/
+						&& any { $_ eq $stat } @ability_keys)
+					{
+						$statusline{$stat} = int($value);
+					}
+					# St:18/whatever special case
+					elsif ($value =~ m/^18\/ (\d+ | \*{2})$/x
+							&& $stat eq 'St')
+					{
+						$statusline{St} = 18;
+						if ($1 eq '**')
+						{
+							$statusline{St_percentile} = 100;
+						}
+						else
+						{
+							$statusline{St_percentile} = int($1);
+						}
+					}
+				}
+			}
+		}
+		# I'd forgotten the design plan for this - if one of the lines
+		# fails, we have to try the next pair in the list of lines
+		else
+		{
+			next;
+		}
+
+		##dd(%statusline);
+
+		if ($bottom_line
+			=~ s/^.*?
+				(
+					\S+ : \S+ (?:\s+ \S+ : \S+){6,7}
+				).*?$/$1/x
+			)
+		{
+			my @status_keys = ('Dlvl', 'Zm', 'HP', 'Pw', 'AC', 'Xp', 'HD', 'T', 'S');
+			foreach my $status_field (split(/\s+/, $bottom_line))
+			{
+				if ($status_field =~ m/^(\S+):(\S+)$/)
+				{
+					my ($key, $value) = ($1, $2);
+
+					# convert '$' to 'Zm' for the hash table
+					$value =~ s/^\$$/Zm/;
+
+					# normally HP and Pw are shown as cur(max)
+					if ($value =~ m/^(\d+)\((\d+)\)$/
+						&& $key eq 'HP' || $key eq 'Pw')
+					{
+						my ($current, $max) = ($1, $2);
+						$statusline{"${key}_current"} = int($current);
+						$statusline{"${key}_max"} = int($max);
+					}
+
+					# Xp can sometimes have exp points attached
+					elsif ($value =~ m/^(\d+)\/(\d+)$/
+						&& $key eq 'Xp')
+					{
+						my ($level, $points) = ($1, $2);
+						$statusline{"${key}_level"} = int($level);
+						$statusline{"${key}_points"} = int($points);
+					}
+
+					# AC is the only one that can be a negative value
+					elsif ($value =~ m/^-(\d+)$/
+							&& $key eq 'AC')
+					{
+						$statusline{AC} = -int($1);
+					}
+
+					# this is the general behaviour,
+					# Dlvl, Zm, HD, T and S are normal integer fields
+					elsif ($value =~ m/^\d+$/
+							&& any { $_ eq $key } @status_keys)
+					{
+						$statusline{$key} = int($value);
+					}
+				}
+				## consider including a debug output on else?
+			}
+			## hear we should have found and succesfully processed a
+			## statusline in the hash %statusline
+			##dd(%statusline);
+			return \%statusline;
+		}
+		else
+		{
+			next;
+		}
+	}
+
+	## if we fall out of the loop without finding success,
+	## then we have to return undef
+	return undef;
 }
 
 ## i think this subroutine isn't currently in actual use
@@ -267,7 +412,8 @@ foreach my $flag (@ARGV) {
 		$session = $1;
 	} elsif ($flag =~ m/^(no|\+|-|.*?)(\w+)$/) {
         my ($flag_type, $item) = ($1, $2);
-        if (any { $_ eq $item } @scum_keys) {
+        if (any { $_ eq $item } @scum_keys)
+		{
             if ($flag_type eq 'no') {
                 push @non_scum, $item;
             } elsif ($flag_type eq '+') {
@@ -300,15 +446,21 @@ foreach my $flag (@ARGV) {
 #print STDERR "soft-scum list: " . join (", ", @soft_scum) . "\n";
 #exit 0;
 
+my $active_turn = 0;			# this will track the current turn-count
+my $scumwiz_active = 1;			# if set to undef, scumwiz.pl will only watch, until the user dies or quits
 my $t0 = [gettimeofday];
-my $count = 0;
-my $timeout = 0;
+
 my @old_data;
 
 while (1)
 {
     my %scum = ();
 	my @data;
+
+	my $count = 0;		# thi is now a timeout for quitting a scum and re-rolling, i.e. give the user
+	my $timeout = 0;	# a half chance of spotting something they like in inventory and overriding
+						# what was requested - once the game is quit it'll go back to autoscum anyway
+								
 
 	# get screen
 	do
@@ -327,10 +479,25 @@ while (1)
 	}
 	while (!@data);
 
-	# start game
-	if (grep { m/\bConnection closed by foreign host\b/ } @data) {
+	if (grep { m/\bConnection closed by foreign host\b/ } @data)
+	{
 		my $elapsed = get_elapsed ($t0);
-		die "Spamfiltered ($count tries, time: $elapsed."
+		die "Spamfiltered ($count tries, time: $elapsed.";
+	}
+
+	# wanna do this update independently each time, *if* we get an open
+	# nethack with a visible status line
+	my $nh_status = get_statusline(\@data);
+	if ($nh_status && $nh_status->{T})
+	{
+		$active_turn = $nh_status->{T};
+
+		# if the current game-turn shows as anything above 1,
+		# disable automatic scumming for now
+		if ($active_turn > 1)
+		{
+			$scumwiz_active = 0;
+		}
 	}
 	
 	# the logic for dealing with start-game and quit prompts
@@ -338,66 +505,117 @@ while (1)
 	# windowtype curses is a must, and the terminal should be large
 	# enough to fit the entire inventory (perm_invent must be true)
 	# on a single page
-	if (grep { m/\bTHE NOVEMBER NETHACK TOURNAMENT IS LIVE\b/ }  @data)
+	if ($scumwiz_active && $active_turn <= 1 
+			&& grep { m/\bTHE NOVEMBER NETHACK TOURNAMENT IS LIVE\b/ } @data)
 	{
 		# hit t to start game
 		system ('screen', '-S', $session, '-X', 'stuff', 't');
+		
+		# reset timer/counter so user has a little more time to
+		# (potentially) see something they want and pause scumming
+		$count = 0;
+	}
+	
+	# oh no, it's game over! (could be quit, death, perhaps even ascension?)
+	# the saved temp values don't persist with this ḱind of grep over an array
+	if (grep { m/\bGoodbye \w+ the \w+\.\.\./ } @data)
+	{
+		foreach my $line (@data)
+		{
+			if ($line =~ m/\bGoodbye (\w+) the (\w+)\.\.\./)
+			{
+				my ($name, $title) = ($1, $2);
+				if ($title =~ m/Demigod(?:dess)?/)
+				{
+					print STDERR "$name ascended!\n";
+				}
+			}
+		}
 
-	} elsif (grep { m/\bGoodbye \w+ the \w+\.\.\./ } @data) {
 		# space works for both these exit prompts
-		system ('screen', '-S', $session, '-X', 'stuff', ' ');
+		if ($scumwiz_active)
+		{
+			system ('screen', '-S', $session, '-X', 'stuff', ' ');
+		}
+		else
+		{
+			$scumwiz_active = 1;			
+		}
+		$active_turn = 0;	# there is no game currently, as we just quit
+	}
 
-	} elsif (grep { m/\bBeware, there will be no return\b/ } @data) {
+	# if there has been user intervention, don't confirm this prompt
+	elsif ($scumwiz_active && grep { m/\bBeware, there will be no return\b/ } @data)
+	{
 		# this prompt i think is standard after trying to exit dl1 by <
 		system ('screen', '-S', $session, '-X', 'stuff', 'y');
 		# ths is typically followed by a >> prompt which for some reason
 		# struggles to match, so just sleep briefly then send a space
 		usleep 200000;
 		system ('screen', '-S', $session, '-X', 'stuff', ' ');
+	}
 	
 	# perm_invent means we don't need to actually open inventory so it'll be there on the welcome screen
 	# the welcome message remains on screen during quit steps, so process this case last
-	} elsif (grep { m/\bHello \w+, welcome to\b/ } @data) {
+	# this case should apply when we've just started a game - if we've been idle but are still following
+	# an active game, we need another case that just looks for some statusline stuff...
+	elsif ($scumwiz_active && grep { m/\bHello \w+, welcome to\b/ } @data)
+	{
+		# some information is already got for us from the call to 
+		# get_statusline, above, i.e. $nh_status->{In}
+		if ($nh_status && $nh_status->{In} && $nh_status->{In} => 17)
+		{
+			$scum{int} = $nh_status->{In}
+		}
+
 		# max scum one game per second otherwise dgl error turfs us out
 		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
 		# check for key items
-		foreach my $line (@data) {
-			if ($line =~ m/\bSt:\d+ Dx:\d+ Co:\d+ In:(\d+) Wi:\d+ Ch:\d+\b/) {
-				$scum{int} = $1 if $1 >= 17;
-			}
-
-            # autopickup gems results in a false positive for room_wand,
+		foreach my $line (@data)
+		{
+			# autopickup gems results in a false positive for room_wand,
             # so filter that text
             $line =~ s/\bGems\/Stones\b//;
-			if ($line =~ m/(\/|\b\w - a .*wand)/) {
+			if ($line =~ m/(\/|\b\w - a .*wand)/)
+			{
                 print STDERR "room_wand triggered by $1\n";
                 $scum{room_wand} = 1;
             }
 			
 			# inventory lines are mutually exclusive
-			if ($line =~ m/\b(tooled horn|harp|bugle|flute)\b/) {
+			if ($line =~ m/\b(tooled horn|harp|bugle|flute)\b/)
+			{
 				$scum{tonal} = $1;
 			}
-			elsif ($line =~ m/\bteleport control\b/) {
+			elsif ($line =~ m/\bteleport control\b/)
+			{
 				$scum{tc} = 1;
 			}
-            elsif ($line =~ m/\b(ring of polymorph control|wand of polymorph)\b/) {
+            elsif ($line =~ m/\b(ring of polymorph control|wand of polymorph)\b/)
+			{
                 $scum{poly} = $1;
             }
-            elsif ($line =~ m/\bmagic marker \(0:[6789]/) {
+            elsif ($line =~ m/\bmagic marker \(0:[6789]/)
+			{
                 $scum{marker} = 1;
             }
-            elsif ($line =~ m/\bring of slow digestion\b/) {
+            elsif ($line =~ m/\bring of slow digestion\b/)
+			{
                 $scum{foodless} = 1;
             }
-            elsif ($line =~ m/\bwand of digging\b/) {
+            elsif ($line =~ m/\bwand of digging\b/)
+			{
                 $scum{digging} = 1;
             }
 		}
 		
         # declare a hit regardless of other targets if there's a random wand, either
 		# visible on the map or obtained by autopickup on the staircase on t:1
-        last if $scum{room_wand};
+        if ($scum{room_wand})
+		{
+			$scumwiz_active = 0;
+			next;
+		}
 
 		# make an array of what we hit on this game, tbh actual hash was
 		# only required for some verbose logging code that has been removed for now
@@ -416,28 +634,35 @@ while (1)
 
 		# the actual check for whether all hard targets are met,
 		# and (if there are any), at least one soft target was found
-        last if (is_subset (\@hard_scum, \@scum_keys)
+        if (is_subset (\@hard_scum, \@scum_keys)
                  && (scalar (@soft_scum) == 0 
-                     || (count_hits (\@soft_scum, \@scum_keys) >= 1))
-                );
-        
-		$count++;
-		system ('screen', '-S', $session, '-X', 'stuff', "<");
-	} elsif (grep { m/gzip: .*\.ttyrec\.gz/ } @data) {
+                     || (count_hits (\@soft_scum, \@scum_keys) >= 1)))
+		{
+			$scumwiz_active = 0;
+			next;
+		}
+		else
+		{
+        	$count++;
+			if ($count >= 3)
+			{
+				system ('screen', '-S', $session, '-X', 'stuff', "<");
+			}		
+		}
+	}
+	elsif (grep { m/gzip: .*\.ttyrec\.gz/ } @data)
+	{
 		# if this comes up something weird happened
 		print STDERR "got weird gzip ttyrec question from server\n";
 		exit(1);
-	} else {
-		$timeout++;
-		if ($timeout > 15 * 5)
-		{
-			my $elapsed = get_elapsed ($t0);
-			print @data;
-			die "Timed out ($count tries, time: $elapsed)\n"
-		}
 	}
+	#else		- idk what to use this for
+	#	$timeout++;
+	#	if ($timeout > 15 * 5)
+	#	{
+	#		my $elapsed = get_elapsed ($t0);
+	#		print @data;
+	#		die "Timed out ($count tries, time: $elapsed)\n"
+	#	}
+	#}
 }
-
-my $elapsed = get_elapsed ($t0);
-print STDERR "Success ($count tries, time: $elapsed).\n";
-exit 0;
