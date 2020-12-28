@@ -358,7 +358,7 @@ sub put_string
     my ($session, $stuff) = @_;
 
     system ('screen', '-S', $session, '-X', 'stuff', $stuff);
-    usleep 200_000;
+    usleep 300_000;
 }
 
 ## i think this subroutine isn't currently in actual use
@@ -728,7 +728,7 @@ while (1)
                     scumstat("WISH($wands_found, poly wand)");
                 }
 
-                put_string($session, "x\n");
+                put_string($session, "yx\n");
                 put_string($session, "Sy\n");
     	        last;
     	    }
@@ -743,11 +743,13 @@ while (1)
     	    }
     	    elsif (grep { m/The engraving now reads/ } @data)
     	    {
-                #if ($scum{poly} && $scum{poly} =~ m/polymorph control/)
-                #{
-                #    scumstat("POLYKIT($wands_found)");
-                #    last;
-                #}
+                if ($scum{poly} && $scum{poly} =~ m/polymorph control/)
+                {
+                    scumstat("POLYKIT($wands_found)");
+                    put_string($session, "Cnpolymorph\n");
+                    put_string($session, "Sy\n");
+                    last;
+                }
     	        $quit = 1;
     	    }
     	    elsif (grep { m/Do you want to add to the current engraving/ } @data)
@@ -795,7 +797,7 @@ while (1)
 	{
 		do
 		{
-			usleep 200_000;
+			usleep 500_000;
 			@data = get_screencopy($session);
 			$nh_status = get_statusline(\@data);
 		} while ($nh_status);
