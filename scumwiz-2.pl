@@ -159,40 +159,44 @@ sub get_elapsed
 # with a bit of processing to trim excess whitespace etc.
 sub get_screencopy
 {
-	my ($fh, @screen_raw, @data_out, $i, $signal);
-	my $session = shift;
-	my $filename = "${tmp_dir}/${session}.$$";
-	mkfifo ($filename, 0700)
-		or die "Couldn't make named pipe";
-	my $pid = fork;
-	if ($pid)
-	{
-		open ($fh, '<', $filename)
-			or die "Open failed: $!\n";
-		@screen_raw = <$fh>;
-		close $fh;
-		unlink $filename;
-		wait;
-#		print "returned: $?, ", $? >> 8, " from child $pid\n"
-	}
-	else
-	{
-		exec ('screen', '-S', $session, '-X', 'hardcopy', $filename)
-	}
-	close $fh;
-	unlink $filename;
+    	my ($fh, @screen_raw, @data_out, $i, $signal);
+    	my $session = shift;
 
-	foreach my $line (@screen_raw)
-	{
-		$line =~ s/^\s*//; # strip preceeding whitespace
-		$line =~ s/\s*$//; # strip tailing whitespace
-		if (length($line) > 0)
-		{
-			push @data_out, $line;
-            #print STDERR "$line\n";
-		}
-	}
-	return @data_out;
+        do {
+    	my $filename = "${tmp_dir}/${session}.$$";
+    	mkfifo ($filename, 0700)
+    		or die "Couldn't make named pipe";
+    	my $pid = fork;
+    	if ($pid)
+    	{
+    		open ($fh, '<', $filename)
+    			or die "Open failed: $!\n";
+    		@screen_raw = <$fh>;
+    		close $fh;
+    		unlink $filename;
+    		wait;
+        #		print "returned: $?, ", $? >> 8, " from child $pid\n"
+    	}
+    	else
+    	{
+    		exec ('screen', '-S', $session, '-X', 'hardcopy', $filename)
+    	}
+    	close $fh;
+    	unlink $filename;
+
+    	foreach my $line (@screen_raw)
+    	{
+    		$line =~ s/^\s*//; # strip preceeding whitespace
+    		$line =~ s/\s*$//; # strip tailing whitespace
+    		if (length($line) > 0)
+    		{
+    			push @data_out, $line;
+                #print STDERR "$line\n";
+    		}
+    	}
+    } while !@data_out;
+
+    return @data_out;
 }
 
 sub get_statusline
@@ -323,7 +327,7 @@ sub get_statusline
 			}
 			## hear we should have found and succesfully processed a
 			## statusline in the hash %statusline
-			##dd(%statusline);
+            ##dd(%statusline);
 			return \%statusline;
 		}
 		else
@@ -337,15 +341,24 @@ sub get_statusline
 	return undef;
 }
 
-sub scumstat {
+sub scumstat
+{
 	my $msg = shift;
-	my $filename = $ENV{HOME} . "/.scumstat-2";
+	my $filename = $ENV{HOME} . "/.scumstat";
 
 	open (my $fh, '>', $filename)
 			or die "Open failed: $!\n";
 	
 	print $fh "$msg\n";
 	close $fh;
+}
+
+sub put_string
+{
+    my ($session, $stuff) = @_;
+
+    system ('screen', '-S', $session, '-X', 'stuff', $stuff);
+    usleep 200_000;
 }
 
 ## i think this subroutine isn't currently in actual use
@@ -410,7 +423,7 @@ my $session = 'default';
 #
 # screen session can be set with -session=bar
 
-my @scum_keys = ('tonal', 'poly', 'marker', 'foodless', 'digging', 'tc', 'int');
+my @scum_keys = ('tonal', 'poly', 'marker', 'foodless', 'digging', 'tc', 'int', 'autopickup_wand');
 my @hard_scum = ('poly', 'tonal', 'int');
 my @soft_scum = ();
 my @non_scum = (); # anything added to this list will result in them being removed from 
@@ -457,299 +470,162 @@ foreach my $flag (@ARGV) {
 #print STDERR "soft-scum list: " . join (", ", @soft_scum) . "\n";
 #exit 0;
 
-my $active_turn = 0;			# this will track the current turn-count
-my $scumwiz_active = 1;			# if set to undef, scumwiz.pl will only watch, until the user dies or quits
-my $wand_mode = 0;
+my $active_turn;			# this will track the current turn-count
+my $scumwiz_active;			# if set to undef, scumwiz.pl will only watch, until the user dies or quits
+my $full_auto = 1;			# only checks wands if true
+my $wand_mode;
 my $wands_found = 0;
-my ($wand_row, $wand_col, $at_row, $at_col) = (0, 0, 0, 0);
-my $zapped = 0;
+my ($wand_row, $wand_col, $at_row, $at_col);
+my $zapped;
+my $quit;
 scumstat("scumming($wands_found)");
 my $t0 = [gettimeofday];
-my $count = 0;
-my $timeout = 0;
-my @old_data;
+my $count;
+my $timeout;
+
+# get initial state
+my $initial_state = '';
+my @initial_data;
+do {
+    @initial_data = get_screencopy($session);
+    if (get_statusline(\@initial_data))
+    {
+        $initial_state = 'nethack';
+    }
+    elsif (grep { m/Play NetHack 3.6.6/ } @initial_data)  
+    {
+        $initial_state = 'play';
+        put_string($session, 'p');
+    }
+    elsif (grep { m/Logged in as/ } @initial_data)
+    {
+        $initial_state = 'dgl-in';
+        put_string($session, 'p');
+    }
+    elsif (grep { m/nethack.alt.org/ } @initial_data)
+    {
+        $initial_state = 'dgl';
+    }
+} while $initial_state ne 'nethack';
+
 
 while (1)
 {
     my %scum = ();
-	my @data;
+    my @data;
+    my $nh_status = undef;
+    $active_turn = 0;			# this will track the current turn-count
+    $scumwiz_active = 1;		# if set to undef, scumwiz.pl will only watch, until the user dies or quits
+    $wand_mode = 0;
+    ($wand_row, $wand_col, $at_row, $at_col) = (0, 0, 0, 0);
+    $zapped = 0;
+    $quit = 0;
 
-	# get screen
-	do
+	@data = get_screencopy($session);
+
+    scumstat("scumming($wands_found)");
+
+	if (grep { m/\bConnection closed by foreign host\b/ } @data
+        || grep { m/\bConnection to (\w+\.)?\w+\.\w closed\.\b/ } @data)
 	{
-		# this sleep is important for two reasons
-		# one: if it's shorter than the latency, the script will
-		# respond to prompts twice (this behaviour could be changed,
-		# but the current behaviour is much simpler to program)
-		# two: a bug in dgl on the hardfought servers does not deal
-		# gracefully if a dumplog already exists for the current
-		# unix timestamp, which will kill our session
-		# so scumming is effectively capped at one game per second
-        usleep 50_000;
-
-		@data = get_screencopy ($session)
-	}
-	while (!@data);
-
-	if (grep { m/\bConnection closed by foreign host\b/ } @data)
-	{
-		my $elapsed = get_elapsed ($t0);
-		die "Spamfiltered ($count tries, time: $elapsed.";
+        die "Disconnected.";
 	}
 
-	# wanna do this update independently each time, *if* we get an open
-	# nethack with a visible status line
-	my $nh_status = get_statusline(\@data);
-	if ($nh_status && $nh_status->{T})
+	# workarond for edge-case where it gets stuck in the email prompt
+	if (grep { m/Your current email is/ } @data)
 	{
-		$active_turn = $nh_status->{T};
-
-		## if the current game-turn shows as anything above 1,
-		## disable automatic scumming for now
-		#if ($active_turn > 1)
-		#{
-		#	$scumwiz_active = 0;
-		#	scumstat("");
-		#}
-	}
-	
-	# the logic for dealing with start-game and quit prompts
-	# is a bit hacky and may be highly dependent on player rcfile!
-	# windowtype curses is a must, and the terminal should be large
-	# enough to fit the entire inventory (perm_invent must be true)
-	# on a single page
-	if ($scumwiz_active && $active_turn <= 1 
-			&& grep { m/\bTHE NOVEMBER NETHACK TOURNAMENT IS LIVE\b/ } @data)
-	{
-		# hit t to start game
-		system ('screen', '-S', $session, '-X', 'stuff', 't');
-		
-		# reset timer/counter so user has a little more time to
-		# (potentially) see something they want and pause scumming
-		$count = 0;
-	}
-	
-	# oh no, it's game over! (could be quit, death, perhaps even ascension?)
-	# the saved temp values don't persist with this ḱind of grep over an array
-	if (grep { m/\bGoodbye \w+ the \w+\.\.\./ } @data)
-	{
-		foreach my $line (@data)
-		{
-			if ($line =~ m/\bGoodbye (\w+) the (\w+)\.\.\./)
-			{
-				my ($name, $title) = ($1, $2);
-				if ($title =~ m/Demigod(?:dess)?/)
-				{
-					print STDERR "$name ascended!\n";
-				}
-			}
-		}
-
-		# space works for both these exit prompts
-		if ($scumwiz_active)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', ' ');
-		}
-		else
-		{
-			$scumwiz_active = 1;
-			scumstat("scumming($wands_found)");			
-		}
-		$wand_mode = 0;
-		$zapped = 0;
-		$active_turn = 0;	# there is no game currently, as we just quit
-		($wand_row, $wand_col, $at_row, $at_col) = (0, 0, 0, 0);
+		put_string($session, "^u\n");
+		next;
 	}
 
-	# if there has been user intervention, don't confirm this prompt
-	elsif ($scumwiz_active && grep { m/\bBeware, there will be no return\b/ } @data)
+	# workarond for edge-case where it gets stuck in the server info prompt
+	if (grep { m/Your current email is/ } @data)
 	{
-		# this prompt i think is standard after trying to exit dl1 by <
-		system ('screen', '-S', $session, '-X', 'stuff', 'y');
-		# ths is typically followed by a >> prompt which for some reason
-		# struggles to match, so just sleep briefly then send a space
-		usleep 200000;
-		system ('screen', '-S', $session, '-X', 'stuff', ' ');
+		put_string($session, "q");
+		next;
 	}
-	
-	# perm_invent means we don't need to actually open inventory so it'll be there on the welcome screen
-	# the welcome message remains on screen during quit steps, so process this case last
-	# this case should apply when we've just started a game - if we've been idle but are still following
-	# an active game, we need another case that just looks for some statusline stuff...
-	elsif ($scumwiz_active && !$wand_mode && grep { m/\bHello \w+, welcome to\b/ } @data)
+
+    $nh_status = get_statusline(\@data);
+    if (!$nh_status && grep { m/Play NetHack 3.6.6/ } @data)
+    {
+        put_string($session, 'p');
+		next;
+    } 
+
+	foreach my $line (@data)
 	{
-		# some information is already got for us from the call to 
-		# get_statusline, above, i.e. $nh_status->{In}
-		if ($nh_status && $nh_status->{In} && $nh_status->{In} => 17)
+		# autopickup gems results in a false positive for room_wand,
+        # so filter that text
+        $line =~ s/\bGems\/Stones\b//;
+		if ($line =~ m/\//)
 		{
-			$scum{int} = $nh_status->{In}
-		}
-
-		# max scum one game per second otherwise dgl error turfs us out
-		# tyrec/2020-10-29.08:51:59.ttyrec.gz already exists; do you wish to overwrite (y or n)? 
-		# check for key items
-		foreach my $line (@data)
-		{
-			# autopickup gems results in a false positive for room_wand,
-            # so filter that text
-            $line =~ s/\bGems\/Stones\b//;
-			if ($line =~ m/(\/|\b\w - a .*wand)/)
-			{
-				$wand_mode++;
-                $wands_found++;
-                $scum{room_wand} = 1;
-                print STDERR "found $wands_found wands\n";
-            }
-			
-			# inventory lines are mutually exclusive
-			if ($line =~ m/\b(tooled horn|harp|bugle|flute)\b/)
-			{
-				$scum{tonal} = $1;
-			}
-			elsif ($line =~ m/\bteleport control\b/)
-			{
-				$scum{tc} = 1;
-			}
-            elsif ($line =~ m/\b(ring of polymorph control|wand of polymorph)\b/)
-			{
-                $scum{poly} = $1;
-            }
-            elsif ($line =~ m/\bmagic marker \(0:[6789]/)
-			{
-                $scum{marker} = 1;
-            }
-            elsif ($line =~ m/\bring of slow digestion\b/)
-			{
-                $scum{foodless} = 1;
-            }
-            elsif ($line =~ m/\bwand of digging\b/)
-			{
-                $scum{digging} = 1;
-            }
-		}
-		
-        # declare a hit regardless of other targets if there's a random wand, either
-		# visible on the map or obtained by autopickup on the staircase on t:1
-        if ($scum{room_wand})
-		{
-			scumstat("wand($wands_found)");
-			next;
-		}
-
-		# make an array of what we hit on this game, tbh actual hash was
-		# only required for some verbose logging code that has been removed for now
-        my @scum_keys = keys %scum;
-
-		# verbose debuggy crap
-        #print STDERR "scum keys this round: " . join (", ", @scum_keys) . "\n";
-        if (is_subset (\@hard_scum, \@scum_keys)) {
-            #print STDERR "hits all hard scum reqs\n";
+			$wand_mode++;
+            $scum{room_wand} = 1;
+            scumstat("room-wand($wands_found)");
         }
-        if (scalar (@soft_scum) == 0) {
-            #print STDERR "no soft scum requirements in place\n";
-        } else {
-            #print STDERR "soft scum hits total: " . count_hits (\@soft_scum, \@scum_keys) . "\n";
+		if ($line =~ m/\b(\w) - a \w+ wand/)
+        {
+            $scum{autopickup_wand} = $1;
+            scumstat("wand get($wands_found)");
         }
-
-		# the actual check for whether all hard targets are met,
-		# and (if there are any), at least one soft target was found
-        if (is_subset (\@hard_scum, \@scum_keys)
-                 && (scalar (@soft_scum) == 0 
-                     || (count_hits (\@soft_scum, \@scum_keys) >= 1)))
+		# inventory lines are mutually exclusive
+		if ($line =~ m/\b(tooled horn|harp|bugle|flute)\b/)
 		{
-			$scumwiz_active = 0;
-			scumstat("inventory($wands_found)");
-			next;
+			$scum{tonal} = $1;
 		}
-		else
+		elsif ($line =~ m/\bteleport control\b/)
 		{
-        	$count++;
-			if ($count >= 3)
-			{
-				system ('screen', '-S', $session, '-X', 'stuff', "<");
-                $count = 0;
-			}		
+			$scum{tc} = 1;
 		}
+        elsif ($line =~ m/\b(polymorph control|wand of polymorph)\b/)
+		{
+            $scum{poly} = $1;
+        }
+        elsif ($line =~ m/\bmagic marker \(0:[6789]/)
+		{
+            $scum{marker} = 1;
+        }
+        elsif ($line =~ m/\bring of slow digestion\b/)
+		{
+            $scum{foodless} = 1;
+        }
+        elsif ($line =~ m/\bwand of digging\b/)
+		{
+            $scum{digging} = 1;
+        }
+        elsif ($line =~ m/\b(\w+) scroll of charging\b/)
+        {
+            $scum{charging} = $1;
+        }
 	}
-	# automatic wand fetch mode
-	elsif ($scumwiz_active && $wand_mode == 1)
+
+	if ($full_auto)
 	{
-		if (grep { m/For what do you wish\?/ } @data)
-		{
-			$scumwiz_active = 0;
-			$wand_mode = 0;
-			scumstat("WISH($wands_found)");
-			last;
-		}
-		elsif (grep { m/Really quit\?/ } @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', "yes\n");
-            scumstat("scumming($wands_found)");
-		}
-		#elsif (grep { m/In what direction\?/ } @data)
-		#{
-		#	system ('screen', '-S', $session, '-X', 'stuff', 'h');
-		#	system ('screen', '-S', $session, '-X', 'stuff', '^[q');
-		#}
-		elsif (grep { m/You feel self-knowledgeable\.\.\.\s+The feeling subsides\./} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', '^[q');
-		}
-		elsif (grep { m/You feel self-knowledgeable\.\.\./} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', ' ');
-		}
-		elsif (grep { m/What do you want to add to the writing in the dust here\?/} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', '^[');
-		}
-		elsif (grep { m/Do you want to add to the current engraving\?/} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', 'y');
-		}
-		elsif (grep { m/What do you want to write in the dust here\?/} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', '^[');
-		}
-		elsif (grep { m/A trap door opens up under you/} @data)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', '^[q');
-			$zapped = 0;
-		}
-		elsif ($zapped)
-		{
-			system ('screen', '-S', $session, '-X', 'stuff', '^[q');
-			$zapped = 0;
-		}
-		else {
-			for (my $i = 0; $i < @data; $i++)
+    	while ($wand_mode)
+    	{
+    	    for (my $i = 0; $i < @data; $i++)
 			{
 				$data[$i] =~ s/\bGems\/Stones\b/Gems\&Stones/;
-				if ($data[$i] =~ m/\b(\w) - an? (\w+) wand/)
+				if ($data[$i] =~ m/\b(\w) - an? \w+ wand/)
 				{
-					my $inventory_letter = $1;
-					my $descr = $2;
-					system ('screen', '-S', $session, '-X', 'stuff', "E-x\n");
-					system ('screen', '-S', $session, '-X', 'stuff', "E${inventory_letter}");
-					$zapped = 1;
-					($wand_row, $wand_col, $at_row, $at_col) = (0, 0, 0, 0);
+    	            $scum{room_wand} = undef;
+					$scum{autopickup_wand} = $1;
+    	            $wand_mode = 0;
 					last;
 				}
-				elsif ($data[$i] =~ m/\b(\w) - an? wand of (\w+)/) 
+				elsif ($data[$i] =~ m/\b\w - an? wand of (\w)+/) 
 				{
-					my $inventory_letter = $1;
-					my $descr = $2;
-					if ($descr eq "wishing")
+					$wands_found++;
+					if ($1 eq "wishing")
 					{
-						$scumwiz_active = 0;
-						$wand_mode = 0;
-						scumstat("WISH($wands_found)");
+						scumstat("WISH($wands_found, known autopickup [impossible])");
 						exit(1);
 					}
-                    else
-                    {
-                        system ('screen', '-S', $session, '-X', 'stuff', '^[q');
-                    }
+    	            else
+    	            {
+    	                $quit = 1;
+    	                $wand_mode = 0;
+    	            }
 				}
 				if ($data[$i] =~ m/\//)
 				{
@@ -770,49 +646,163 @@ while (1)
 					}
 				}
 			}
-            #print "wand: ($wand_row, $wand_col)\n";
-            #print "you: ($at_row, $at_col)\n";
+    	    if ($scum{autopickup_wand} || $quit
+    	        || !$wand_row || !$wand_col || !$at_row || !$at_col)
+    	    { last; }
+
 			if ($wand_row > $at_row)
 			{
 				if ($wand_col > $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'n'); }
+				{ put_string ($session, 'n'); }
 				elsif ($wand_col < $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'b'); }
+				{ put_string ($session, 'b'); }
 				else
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'j'); }
+				{ put_string ($session, 'j'); }
 			}
 			elsif ($wand_row < $at_row)
 			{
 				if ($wand_col > $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'u'); }
+				{ put_string ($session, 'u'); }
 				elsif ($wand_col < $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'y'); }
+				{ put_string ($session, 'y'); }
 				else
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'k'); }
+				{ put_string ($session, 'k'); }
 			}
 			else
 			{
 				if ($wand_col > $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'l'); }
+				{ put_string ($session, 'l'); }
 				elsif ($wand_col < $at_col)
-				{ system ('screen', '-S', $session, '-X', 'stuff', 'h'); }
+				{ put_string ($session, 'h'); }
 			}
-		}
-	} 
-	elsif ($scumwiz_active && $wand_mode > 1) { $scumwiz_active = 0 }
-	elsif (grep { m/gzip: .*\.ttyrec\.gz/ } @data)
-	{
-		# if this comes up something weird happened
-		print STDERR "got weird gzip ttyrec question from server\n";
-		exit(1);
+    	    @data = get_screencopy($session);
+
+    	    # check for trapdoor fuckups
+    	    $nh_status = get_statusline(\@data);
+    	    if ($nh_status && $nh_status->{Dlvl}
+    	        && $nh_status->{Dlvl} != 1)
+    	    {
+    	        print STDERR "our dlvl was ". $nh_status->{Dlvl} ."\n";
+    	        $wand_mode = 0;
+    	        $quit = 1;
+    	    }
+    	}
+
+    	if ($scum{autopickup_wand})
+    	{
+    	    my $letter = $scum{autopickup_wand};
+
+    	    # problematic if there's an altar in the same spot...
+    	    # but engraving "yy" works even if there's text already! ha!
+			$wands_found++;
+    	    put_string ($session, "E-yy\n");
+    	    put_string ($session, "E$letter");
+    	    @data = get_screencopy($session);
+
+    	    if (grep { m/For what do you wish\?/ } @data)
+    	    {
+                # highest priority wish is gonna be charging scrolls
+                if (!$scum{charging} || ($scum{charging} ne "blessed" && !$scum{marker}))
+                {
+                    put_string($session, "3 holy charging named charge B <\n");
+				    scumstat("WISH($wands_found, 3 holy charging)");
+                }
+                # if we've already got a holy charging or the means to write one
+                #  - tho technically the above assumes we find holy water somewhere...
+                #  fair chance we can find holy water or blank a blessed scroll tho
+                # teleport control second priority
+                elsif (!$scum{tc})
+                {
+                    put_string($session, "holy teleport control named TC B <\n");
+                    scumstat("WISH($wands_found, TC ring)");
+                }
+                # anyway, next up would be a polyitem, starting or completing polykit
+                elsif (!$scum{poly} || $scum{poly} ne "polymorph control")
+                {
+                    put_string($session, "holy polymorph control named PC B <\n");
+                    scumstat("WISH($wands_found, PC ring)");
+                }
+                elsif ($scum{poly} eq "polymorph control")
+                {
+                    put_string($session, "holy wand of polymorph named poly B <\n");
+                    scumstat("WISH($wands_found, poly wand)");
+                }
+
+                put_string($session, "Sy\n");
+    	        last;
+    	    }
+    	    elsif (grep { m/You feel self-knowledgeable\.\.\./ } @data)
+    	    {
+    	        put_string ($session, ' ');
+    	        do {
+    	            @data = get_screencopy($session);
+    	            if (grep { m/The feeling subsides/ } @data)
+    	            { $quit = 1 }
+    	        } while (!$quit);
+    	    }
+    	    elsif (grep { m/The engraving now reads/ } @data)
+    	    {
+                #if ($scum{poly} && $scum{poly} =~ m/polymorph control/)
+                #{
+                #    scumstat("POLYKIT($wands_found)");
+                #    last;
+                #}
+    	        $quit = 1;
+    	    }
+    	    elsif (grep { m/Do you want to add to the current engraving/ } @data)
+    	    {
+    	        put_string($session, 'q');
+    	        @data = get_screencopy($session);
+    	        $quit = 1;
+    	    }
+    	    elsif (grep { m/What do you want to (burn|write|engrave) in(to)? the (floor|dust) here/ } @data)
+    	    {
+    	        put_string($session, '^[');
+    	        @data = get_screencopy($session);
+    	        $quit = 1;
+    	    }
+    	    else
+    	    {
+    	        die "don't know what to do HALP";
+    	    }
+    	}
+    	else # quit if we didn't get a wand
+    	{ $quit = 1 }
 	}
-	#else		- idk what to use this for
-	#	$timeout++;
-	#	if ($timeout > 15 * 5)
-	#	{
-	#		my $elapsed = get_elapsed ($t0);
-	#		print @data;
-	#		die "Timed out ($count tries, time: $elapsed)\n"
-	#	}
-	#}
+	# if not full_auto, just stop on digging, autopickup_wand or room_wand
+	else
+	{
+		if ($scum{room_wand} || $scum{digging} || $scum{autopickup_wand})
+		{
+			$scumwiz_active = 0;
+		}
+		else
+		{
+			$quit = 1;
+		}
+	}
+
+    # quit
+    if ($quit)
+    {
+        # i think this should deal with all the prompts
+        put_string($session, '^[q');
+        put_string($session, "yq\n");
+    }
+	# if deactivated, wait until quit or dgl screen
+	elsif (!$scumwiz_active)
+	{
+		do
+		{
+			usleep 200_000;
+			@data = get_screencopy($session);
+			$nh_status = get_statusline(\@data);
+		} while ($nh_status);
+		$scumwiz_active = 1;
+	}
+    else
+    {
+        # fallback - probably need user interference HALP
+        die "don't know what to do HALP";
+    }
 }
