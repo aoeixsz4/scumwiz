@@ -358,7 +358,7 @@ sub put_string
     my ($session, $stuff) = @_;
 
     system ('screen', '-S', $session, '-X', 'stuff', $stuff);
-    usleep 300_000;
+    usleep 350_000;
 }
 
 ## i think this subroutine isn't currently in actual use
@@ -797,7 +797,7 @@ while (1)
 	{
 		do
 		{
-			usleep 500_000;
+			usleep 600_000;
 			@data = get_screencopy($session);
 			$nh_status = get_statusline(\@data);
 		} while ($nh_status);
