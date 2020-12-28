@@ -728,6 +728,7 @@ while (1)
                     scumstat("WISH($wands_found, poly wand)");
                 }
 
+                put_string($session, "x\n");
                 put_string($session, "Sy\n");
     	        last;
     	    }
