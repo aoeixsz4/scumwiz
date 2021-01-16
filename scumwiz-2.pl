@@ -743,13 +743,13 @@ while (1)
     	    }
     	    elsif (grep { m/The engraving now reads/ } @data)
     	    {
-                if ($scum{poly} && $scum{poly} =~ m/polymorph control/)
-                {
-                    scumstat("POLYKIT($wands_found)");
-                    put_string($session, "Cnpolymorph\n");
-                    put_string($session, "Sy\n");
-                    last;
-                }
+		    #if ($scum{poly} && $scum{poly} =~ m/polymorph control/)
+		    #{
+		    #scumstat("POLYKIT($wands_found)");
+		    #put_string($session, "Cnpolymorph\n");
+		    #put_string($session, "Sy\n");
+		    #last;
+		    #}
     	        $quit = 1;
     	    }
     	    elsif (grep { m/Do you want to add to the current engraving/ } @data)
