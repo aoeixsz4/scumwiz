@@ -599,7 +599,8 @@ while (1)
         }
 	}
 
-	if ($full_auto)
+	# force tonal req.
+	if ($full_auto && $scum{tonal})
 	{
     	while ($wand_mode)
     	{
@@ -771,6 +772,10 @@ while (1)
     	}
     	else # quit if we didn't get a wand
     	{ $quit = 1 }
+	}
+	elsif ($full_auto)
+	{
+		$quit = 1;
 	}
 	# if not full_auto, just stop on digging, autopickup_wand or room_wand
 	else
