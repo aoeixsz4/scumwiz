@@ -341,6 +341,16 @@ sub get_statusline
 	return undef;
 }
 
+sub get_scumstat {
+    my $filename = $ENV{HOME} . "/.scumstat";
+    open (my $fh, '<', $filename)
+        or die "Open failed: $!\n";
+    if (<$fh> =~ m/scumming\((\d+)\)/) {
+	return $1;
+    }
+    close $fh;
+}
+
 sub scumstat
 {
 	my $msg = shift;
@@ -474,7 +484,7 @@ my $active_turn;			# this will track the current turn-count
 my $scumwiz_active;			# if set to undef, scumwiz.pl will only watch, until the user dies or quits
 my $full_auto = 1;			# only checks wands if true
 my $wand_mode;
-my $wands_found = 0;
+my $wands_found = get_scumstat();
 my ($wand_row, $wand_col, $at_row, $at_col);
 my $zapped;
 my $quit;
@@ -802,7 +812,7 @@ while (1)
 	{
 		do
 		{
-			usleep 600_000;
+			usleep 350_000;
 			@data = get_screencopy($session);
 			$nh_status = get_statusline(\@data);
 		} while ($nh_status);
